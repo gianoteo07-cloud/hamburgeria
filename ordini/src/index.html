@@ -128,6 +128,21 @@
             font-weight: bold;
         }
 
+        .refresh-button {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: background 0.2s ease;
+        }
+
+        .refresh-button:hover {
+            background: #1976D2;
+        }
+
         .btn-add {
             background: linear-gradient(135deg, #4caf50 0%, #45a049 100%);
             color: white;
@@ -598,68 +613,19 @@
     </style>
 </head>
 <body>
+    <!-- Angular wants an <app-root> element; keep it hidden so it doesn't interfere with the React UI -->
+    <app-root hidden></app-root>
     <div id="root"></div>
 
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        // Mock Data
-        const initialOrders = [
-            {
-                id: '1',
-                orderNumber: 101,
-                items: [
-                    { id: '1', name: 'Big Mac', price: 5.50, quantity: 2, category: 'Panini' },
-                    { id: '2', name: 'Patatine Medie', price: 3.20, quantity: 2, category: 'Patatine' },
-                    { id: '3', name: 'Coca-Cola Media', price: 2.80, quantity: 2, category: 'Bevande' }
-                ],
-                total: 23.00,
-                status: 'In Attesa',
-                timestamp: new Date(),
-                customerName: 'Cliente #101'
-            },
-            {
-                id: '2',
-                orderNumber: 102,
-                items: [
-                    { id: '4', name: 'Menu Big Mac', price: 8.50, quantity: 1, category: 'Menu' },
-                    { id: '5', name: 'McFlurry Oreo', price: 3.50, quantity: 1, category: 'Dessert' }
-                ],
-                total: 12.00,
-                status: 'In Preparazione',
-                timestamp: new Date(Date.now() - 300000),
-                customerName: 'Cliente #102'
-            },
-            {
-                id: '3',
-                orderNumber: 103,
-                items: [
-                    { id: '6', name: 'Happy Meal', price: 5.50, quantity: 2, category: 'Menu' }
-                ],
-                total: 11.00,
-                status: 'Pronto',
-                timestamp: new Date(Date.now() - 600000),
-                customerName: 'Cliente #103'
-            }
-        ];
+        // Base URL dell'API backend; modificare se il server gira altrove
+        const API_BASE = 'https://solid-succotash-pj4r577vjr4qh974p-5000.app.github.dev/';
 
-        const initialMenuItems = [
-            { id: '1', name: 'Big Mac', price: 5.50, category: 'Panini', available: true, description: 'Due hamburger, salsa speciale' },
-            { id: '2', name: 'McChicken', price: 4.50, category: 'Panini', available: true, description: 'Pollo croccante, lattuga, maionese' },
-            { id: '3', name: 'Crispy McBacon', price: 5.90, category: 'Panini', available: true },
-            { id: '4', name: 'Menu Big Mac', price: 8.50, category: 'Menu', available: true },
-            { id: '5', name: 'Menu McChicken', price: 7.50, category: 'Menu', available: true },
-            { id: '6', name: 'Happy Meal', price: 5.50, category: 'Menu', available: true },
-            { id: '7', name: 'Patatine Piccole', price: 2.50, category: 'Patatine', available: true },
-            { id: '8', name: 'Patatine Medie', price: 3.20, category: 'Patatine', available: true },
-            { id: '9', name: 'Patatine Grandi', price: 3.80, category: 'Patatine', available: true },
-            { id: '10', name: 'Coca-Cola Media', price: 2.80, category: 'Bevande', available: true },
-            { id: '11', name: 'Sprite Media', price: 2.80, category: 'Bevande', available: true },
-            { id: '12', name: 'Acqua', price: 1.50, category: 'Bevande', available: true },
-            { id: '13', name: 'McFlurry Oreo', price: 3.50, category: 'Dessert', available: true },
-            { id: '14', name: 'Sundae Cioccolato', price: 2.50, category: 'Dessert', available: true },
-            { id: '15', name: 'Caesar Salad', price: 6.50, category: 'Insalate', available: true },
-        ];
+        // dati iniziali vuoti: verranno caricati dal backend
+        const initialOrders = [];
+        const initialMenuItems = [];
 
         const categories = ['Panini', 'Menu', 'Patatine', 'Bevande', 'Dessert', 'Insalate'];
         const statusOptions = ['In Attesa', 'In Preparazione', 'Pronto', 'Completato', 'Annullato'];
@@ -687,17 +653,42 @@
             return `${diffHours} ore fa`;
         };
 
-        function OrdersView({ orders, setOrders }) {
+        function OrdersView({ orders, setOrders, refreshOrders }) {
+            if (!Array.isArray(orders)) {
+                console.error('OrdersView ricevuto valore non array', orders);
+                return <div>Errore dati ordini</div>;
+            }
             const updateOrderStatus = (orderId, newStatus) => {
-                setOrders(orders.map(order => 
-                    order.id === orderId ? { ...order, status: newStatus } : order
-                ));
+                // inviamo al server prima di aggiornare lo stato locale
+                fetch(`${API_BASE}/orders/${orderId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: newStatus })
+                })
+                .then(r => {
+                    if (!r.ok) throw new Error('Errore');
+                    setOrders(orders.map(order => 
+                        order.id === orderId ? { ...order, status: newStatus } : order
+                    ));
+                })
+                .catch(err => {
+                    console.error(err);
+                    alert('Impossibile aggiornare lo stato dell\'ordine');
+                });
             };
 
             const deleteOrder = (orderId) => {
-                if (window.confirm('Sei sicuro di voler eliminare questo ordine?')) {
-                    setOrders(orders.filter(order => order.id !== orderId));
-                }
+                if (!window.confirm('Sei sicuro di voler eliminare questo ordine?')) return;
+
+                fetch(`${API_BASE}/orders/${orderId}`, { method: 'DELETE' })
+                    .then(r => {
+                        if (!r.ok) throw new Error('Errore');
+                        setOrders(orders.filter(order => order.id !== orderId));
+                    })
+                    .catch(err => {
+                        console.error(err);
+                        alert('Impossibile eliminare l\'ordine');
+                    });
             };
 
             const getStatusClass = (status) => {
@@ -719,6 +710,7 @@
                 <>
                     <div className="header">
                         <h1>📋 Gestione Ordini</h1>
+                        <button className="refresh-button" onClick={refreshOrders} title="Aggiorna adesso">↻ Aggiorna</button>
                     </div>
                     
                     <div className="stats">
@@ -826,25 +818,121 @@
                 }
 
                 if (editingItem) {
-                    setMenuItems(menuItems.map(item => 
-                        item.id === editingItem.id ? { ...formData, id: editingItem.id } : item
-                    ));
+                    // update esistente
+                    fetch(`${API_BASE}/menu-items/${editingItem.id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            nome: formData.name,
+                            categoria: formData.category,
+                            prezzo: parseFloat(formData.price),
+                            description: formData.description || ''
+                        })
+                    })
+                    .then(r => {
+                        if (!r.ok) throw new Error('Errore');
+                        return fetch(`${API_BASE}/menu-items`);
+                    })
+                    .then(r => r.json())
+                    .then(list => {
+                        const norm = list.map(i => ({
+                            id: i.id.toString(),
+                            name: i.nome,
+                            category: i.categoria,
+                            price: parseFloat(i.prezzo),
+                            available: i.available !== undefined ? i.available : true,
+                            description: i.description || '',
+                        }));
+                        setMenuItems(norm);
+                        closeModal();
+                    })
+                    .catch(err => {
+                        console.error('Errore aggiornamento prodotto', err);
+                        alert('Impossibile aggiornare il prodotto');
+                    });
                 } else {
-                    setMenuItems([...menuItems, { ...formData, id: Date.now().toString() }]);
+                    // invia la nuova voce al server
+                    fetch(`${API_BASE}/menu-items`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            nome: formData.name,
+                            categoria: formData.category,
+                            prezzo: parseFloat(formData.price),
+                            description: formData.description || ''
+                        })
+                    })
+                    .then(r => r.json())
+                    .then(data => {
+                        // il server restituisce l'id creato
+                        // aggiorniamo l'elenco richiedendo nuovamente i dati al backend
+                        fetch(`${API_BASE}/menu-items`)
+                            .then(r => r.json())
+                            .then(list => {
+                                const norm = list.map(i => ({
+                                    id: i.id.toString(),
+                                    name: i.nome,
+                                    category: i.categoria,
+                                    price: parseFloat(i.prezzo),
+                                    available: i.available !== undefined ? i.available : true,
+                                    description: i.description || '',
+                                }));
+                                setMenuItems(norm);
+                                closeModal();
+                            })
+                            .catch(err => {
+                                console.error('Errore refetch menu', err);
+                                // anche se fallisce il refetch, chiudiamo comunque
+                                setMenuItems([...menuItems, { ...formData, id: data.id }]);
+                                closeModal();
+                            });
+                    })
+                    .catch(err => {
+                        console.error('Errore nel salvataggio', err);
+                        alert('Impossibile salvare il prodotto');
+                    });
                 }
-                closeModal();
             };
 
             const deleteItem = (itemId) => {
-                if (window.confirm('Sei sicuro di voler eliminare questo prodotto?')) {
-                    setMenuItems(menuItems.filter(item => item.id !== itemId));
-                }
+                if (!window.confirm('Sei sicuro di voler eliminare questo prodotto?')) return;
+                fetch(`${API_BASE}/menu-items/${itemId}`, { method: 'DELETE' })
+                    .then(r => {
+                        if (!r.ok) throw new Error('Errore');
+                        setMenuItems(menuItems.filter(item => item.id !== itemId));
+                    })
+                    .catch(err => {
+                        console.error(err);
+                        alert('Impossibile eliminare il prodotto');
+                    });
             };
 
             const toggleAvailability = (itemId) => {
-                setMenuItems(menuItems.map(item => 
-                    item.id === itemId ? { ...item, available: !item.available } : item
-                ));
+                const item = menuItems.find(i => i.id === itemId);
+                if (!item) return;
+                const newValue = !item.available;
+                // invia aggiornamento al server
+                fetch(`${API_BASE}/menu-items/${itemId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        nome: item.name || item.nome,
+                        categoria: item.category || item.categoria,
+                        prezzo: item.price || item.prezzo,
+                        available: newValue,
+                    })
+                })
+                .then(r => {
+                    if (!r.ok) throw new Error('Errore');
+                    // aggiorna stato locale comunque
+                    setMenuItems(menuItems.map(item => 
+                        item.id === itemId ? { ...item, available: newValue } : item
+                    ));
+                })
+                .catch(err => {
+                    console.error(err);
+                    alert('Impossibile aggiornare disponibilità');
+                });
             };
 
             return (
@@ -966,6 +1054,63 @@
             const [orders, setOrders] = useState(initialOrders);
             const [menuItems, setMenuItems] = useState(initialMenuItems);
 
+            // funzione estratta così può essere richiamata da un bottone
+            const fetchOrders = () => {
+                fetch(`${API_BASE}/orders`)
+                    .then(r => r.json())
+                    .then(data => {
+                        try {
+                            const norm = Array.isArray(data) ? data.map(o => {
+                                const items = Array.isArray(o.items) ? o.items.map((i, idx) => ({
+                                    id: (i.menu_item_id != null ? i.menu_item_id : idx).toString(),
+                                    menu_item_id: i.menu_item_id != null ? i.menu_item_id.toString() : '',
+                                    name: i.nome || '',
+                                    quantity: typeof i.quantity === 'number' ? i.quantity : Number(i.quantity) || 0,
+                                    price: parseFloat(i.prezzo_unitario) || 0,
+                                })) : [];
+                                return {
+                                    ...o,
+                                    id: o.id != null ? o.id.toString() : '',
+                                    total: parseFloat(o.totale) || 0,
+                                    items,
+                                    status: o.status || '',
+                                    orderNumber: o.id || '',
+                                    customerName: o.customerName || '',
+                                    timestamp: o.created_at || o.timestamp || '',
+                                };
+                            }) : [];
+                            console.log('fetched orders', norm.length, norm);
+                            setOrders(norm);
+                        } catch (e) {
+                            console.error('Errore normalizzando ordini', e, data);
+                        }
+                    })
+                    .catch(err => console.error('Errore fetching orders', err));
+            };
+
+            // al montaggio, recuperiamo il menu e inizializziamo polling ordini
+            useEffect(() => {
+                fetchOrders();
+                const interval = setInterval(fetchOrders, 5000);
+
+                fetch(`${API_BASE}/menu-items`)
+                    .then(r => r.json())
+                    .then(data => {
+                        const norm = data.map(i => ({
+                            id: i.id.toString(),
+                            name: i.nome,
+                            category: i.categoria,
+                            price: parseFloat(i.prezzo),
+                            available: i.available !== undefined ? i.available : true,
+                            description: i.description || '',
+                        }));
+                        setMenuItems(norm);
+                    })
+                    .catch(err => console.error('Errore fetching menu items', err));
+
+                return () => clearInterval(interval);
+            }, []);
+
             return (
                 <div className="app-container">
                     <nav className="sidebar">
@@ -995,7 +1140,7 @@
 
                     <main className="main-content">
                         {currentView === 'orders' ? (
-                            <OrdersView orders={orders} setOrders={setOrders} />
+                            <OrdersView orders={orders} setOrders={setOrders} refreshOrders={fetchOrders} />
                         ) : (
                             <MenuView menuItems={menuItems} setMenuItems={setMenuItems} />
                         )}

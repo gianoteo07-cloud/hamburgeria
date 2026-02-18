@@ -3,6 +3,11 @@
 
 import 'package:flutter/material.dart';
 import 'dart:async';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+
+// indirizzo base dell'API (modifica se il tuo server gira altrove)
+const String API_BASE = 'https://solid-succotash-pj4r577vjr4qh974p-5000.app.github.dev/';
 
 void main() {
   runApp(const McDonaldsKioskApp());
@@ -113,16 +118,38 @@ class CartService extends ChangeNotifier {
   }
 
   Future<Order> submitOrder() async {
-    await Future.delayed(const Duration(seconds: 1));
-    final order = Order(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      orderNumber: _orderNumber++,
-      items: List.from(_items),
-      total: totalPrice,
-      timestamp: DateTime.now(),
-    );
-    clear();
-    return order;
+    // prepara payload per l'API
+    final payload = {
+      'items': _items.map((ci) => {
+        'menu_item_id': int.parse(ci.menuItem.id),
+        'quantity': ci.quantity,
+      }).toList(),
+    };
+
+    final uri = Uri.parse('$API_BASE/orders');
+    final response = await http.post(uri,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(payload));
+
+    // debug output
+    print('POST $uri -> ${response.statusCode} ${response.body}');
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      final data = jsonDecode(response.body);
+      // il server potrebbe restituire l'id dell'ordine creato
+      final serverId = data['id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString();
+      final order = Order(
+        id: serverId,
+        orderNumber: _orderNumber++,
+        items: List.from(_items),
+        total: totalPrice,
+        timestamp: DateTime.now(),
+      );
+      clear();
+      return order;
+    } else {
+      throw Exception('Errore invio ordine: ${response.body}');
+    }
   }
 }
 

@@ -1,0 +1,4 @@
+Flask
+flask-cors
+pymysql
+python-dotenv
