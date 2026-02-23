@@ -1,18 +1,13 @@
-// main.dart - McDonald's Totem Cliente Mobile
-// Versione FINALE con carrello 100% funzionante
-
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
-// indirizzo base dell'API (modifica se il tuo server gira altrove)
-const String API_BASE = 'https://solid-succotash-pj4r577vjr4qh974p-5000.app.github.dev/';
+const String apiBase = 'https://literate-parakeet-5g6q4xpgp65rcvv9r-5000.app.github.dev/';
 
 void main() {
   runApp(const McDonaldsKioskApp());
 }
-
 // ==================== MODELS ====================
 
 enum MenuCategory { panini, menu, patatine, bevande, dessert, insalate }
@@ -42,13 +37,33 @@ extension MenuCategoryExtension on MenuCategory {
 }
 
 class MenuItem {
-  final String id;
+  final int id;
   final String name;
   final double price;
   final MenuCategory category;
   final String? description;
+  final bool available;
 
-  MenuItem({required this.id, required this.name, required this.price, required this.category, this.description});
+  MenuItem({required this.id, required this.name, required this.price, required this.category, this.description, this.available = true});
+
+  factory MenuItem.fromJson(Map<String, dynamic> json) {
+    final categoryName = json['categoria']?.toString().toLowerCase() ?? 'panini';
+    MenuCategory category = MenuCategory.panini;
+    try {
+      category = MenuCategory.values.firstWhere((e) => e.toString().split('.').last == categoryName);
+    } catch (e) {
+      category = MenuCategory.panini;
+    }
+
+    return MenuItem(
+      id: json['id'] is int ? json['id'] : int.parse(json['id'].toString()),
+      name: json['nome'] ?? '',
+      price: double.parse(json['prezzo'].toString()),
+      category: category,
+      description: json['description'],
+      available: json['available'] == 1 || json['available'] == true,
+    );
+  }
 }
 
 class CartItem {
@@ -56,6 +71,11 @@ class CartItem {
   int quantity;
   CartItem({required this.menuItem, this.quantity = 1});
   double get totalPrice => menuItem.price * quantity;
+
+  Map<String, dynamic> toJson() => {
+    'menu_item_id': menuItem.id,
+    'quantity': quantity,
+  };
 }
 
 class Order {
@@ -87,12 +107,12 @@ class CartService extends ChangeNotifier {
     notifyListeners();
   }
 
-  void removeItem(String id) {
+  void removeItem(int id) {
     _items.removeWhere((item) => item.menuItem.id == id);
     notifyListeners();
   }
 
-  void incrementQuantity(String id) {
+  void incrementQuantity(int id) {
     final index = _items.indexWhere((item) => item.menuItem.id == id);
     if (index >= 0) {
       _items[index].quantity++;
@@ -100,7 +120,7 @@ class CartService extends ChangeNotifier {
     }
   }
 
-  void decrementQuantity(String id) {
+  void decrementQuantity(int id) {
     final index = _items.indexWhere((item) => item.menuItem.id == id);
     if (index >= 0) {
       if (_items[index].quantity > 1) {
@@ -118,25 +138,17 @@ class CartService extends ChangeNotifier {
   }
 
   Future<Order> submitOrder() async {
-    // prepara payload per l'API
     final payload = {
-      'items': _items.map((ci) => {
-        'menu_item_id': int.parse(ci.menuItem.id),
-        'quantity': ci.quantity,
-      }).toList(),
+      'items': _items.map((ci) => ci.toJson()).toList(),
     };
 
-    final uri = Uri.parse('$API_BASE/orders');
+    final uri = Uri.parse('${apiBase}orders');
     final response = await http.post(uri,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(payload));
 
-    // debug output
-    print('POST $uri -> ${response.statusCode} ${response.body}');
-
     if (response.statusCode >= 200 && response.statusCode < 300) {
       final data = jsonDecode(response.body);
-      // il server potrebbe restituire l'id dell'ordine creato
       final serverId = data['id']?.toString() ?? DateTime.now().millisecondsSinceEpoch.toString();
       final order = Order(
         id: serverId,
@@ -156,43 +168,23 @@ class CartService extends ChangeNotifier {
 // ==================== MENU SERVICE ====================
 
 class MenuService {
-  static List<MenuItem> getMenuItems() {
-    return [
-      MenuItem(id: '1', name: 'Big Mac', price: 5.50, category: MenuCategory.panini, description: 'Due hamburger, salsa speciale, lattuga'),
-      MenuItem(id: '2', name: 'McChicken', price: 4.50, category: MenuCategory.panini, description: 'Pollo croccante, lattuga, maionese'),
-      MenuItem(id: '3', name: 'Crispy McBacon', price: 5.90, category: MenuCategory.panini, description: 'Pollo croccante, bacon, lattuga'),
-      MenuItem(id: '4', name: 'Quarter Pounder', price: 6.20, category: MenuCategory.panini, description: 'Hamburger 113g, formaggio'),
-      MenuItem(id: '5', name: 'Filet-O-Fish', price: 4.80, category: MenuCategory.panini, description: 'Filetto di pesce, formaggio'),
-      MenuItem(id: '6', name: 'Double Cheeseburger', price: 3.90, category: MenuCategory.panini, description: 'Due hamburger, doppio formaggio'),
-      MenuItem(id: '7', name: 'Menu Big Mac', price: 8.50, category: MenuCategory.menu, description: 'Big Mac + Patatine + Bevanda'),
-      MenuItem(id: '8', name: 'Menu McChicken', price: 7.50, category: MenuCategory.menu, description: 'McChicken + Patatine + Bevanda'),
-      MenuItem(id: '9', name: 'Menu Crispy McBacon', price: 8.90, category: MenuCategory.menu, description: 'Crispy McBacon + Patatine + Bevanda'),
-      MenuItem(id: '10', name: 'Menu Best Of', price: 9.90, category: MenuCategory.menu, description: 'Panino a scelta + Patatine Grandi'),
-      MenuItem(id: '11', name: 'Happy Meal', price: 5.50, category: MenuCategory.menu, description: 'Hamburger + Patatine + Bevanda + Gioco'),
-      MenuItem(id: '12', name: 'Patatine Piccole', price: 2.50, category: MenuCategory.patatine),
-      MenuItem(id: '13', name: 'Patatine Medie', price: 3.20, category: MenuCategory.patatine),
-      MenuItem(id: '14', name: 'Patatine Grandi', price: 3.80, category: MenuCategory.patatine),
-      MenuItem(id: '15', name: 'Deluxe Fries', price: 3.90, category: MenuCategory.patatine, description: 'Con condimenti speciali'),
-      MenuItem(id: '16', name: 'Coca-Cola Piccola', price: 2.20, category: MenuCategory.bevande),
-      MenuItem(id: '17', name: 'Coca-Cola Media', price: 2.80, category: MenuCategory.bevande),
-      MenuItem(id: '18', name: 'Coca-Cola Grande', price: 3.20, category: MenuCategory.bevande),
-      MenuItem(id: '19', name: 'Sprite Media', price: 2.80, category: MenuCategory.bevande),
-      MenuItem(id: '20', name: 'Fanta Media', price: 2.80, category: MenuCategory.bevande),
-      MenuItem(id: '21', name: 'Acqua', price: 1.50, category: MenuCategory.bevande),
-      MenuItem(id: '22', name: 'Caffè', price: 1.20, category: MenuCategory.bevande),
-      MenuItem(id: '23', name: 'McFlurry Oreo', price: 3.50, category: MenuCategory.dessert),
-      MenuItem(id: '24', name: 'McFlurry KitKat', price: 3.50, category: MenuCategory.dessert),
-      MenuItem(id: '25', name: 'Sundae Cioccolato', price: 2.50, category: MenuCategory.dessert),
-      MenuItem(id: '26', name: 'Apple Pie', price: 1.80, category: MenuCategory.dessert, description: 'Torta di mele calda'),
-      MenuItem(id: '27', name: 'Muffin', price: 2.20, category: MenuCategory.dessert),
-      MenuItem(id: '28', name: 'Caesar Salad', price: 6.50, category: MenuCategory.insalate, description: 'Lattuga, pollo, parmigiano'),
-      MenuItem(id: '29', name: 'Greek Salad', price: 6.20, category: MenuCategory.insalate, description: 'Pomodori, cetrioli, feta'),
-      MenuItem(id: '30', name: 'Chicken Salad', price: 7.20, category: MenuCategory.insalate, description: 'Pollo grigliato, insalata'),
-    ];
+  static Future<List<MenuItem>> fetchMenuItems() async {
+    try {
+      final uri = Uri.parse('${apiBase}menu-items');
+      final response = await http.get(uri).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final List<dynamic> data = jsonDecode(response.body);
+        return data.map((item) => MenuItem.fromJson(item as Map<String, dynamic>)).toList();
+      }
+      return [];
+    } catch (e) {
+      return [];
+    }
   }
 
-  static List<MenuItem> getItemsByCategory(MenuCategory category) {
-    return getMenuItems().where((item) => item.category == category).toList();
+  static List<MenuItem> getItemsByCategory(List<MenuItem> items, MenuCategory category) {
+    return items.where((item) => item.category == category).toList();
   }
 }
 
@@ -274,16 +266,58 @@ class MenuScreen extends StatefulWidget {
 
 class _MenuScreenState extends State<MenuScreen> {
   MenuCategory selectedCategory = MenuCategory.panini;
+  List<MenuItem> allMenuItems = [];
   List<MenuItem> menuItems = [];
+  bool isLoading = true;
+  Timer? _refreshTimer;
 
   @override
   void initState() {
     super.initState();
     _loadMenuItems();
+    // Avvia polling automatico ogni 2 secondi per aggiornamenti in tempo reale
+    _refreshTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      _loadMenuItems(isAutoRefresh: true);
+    });
   }
 
-  void _loadMenuItems() {
-    setState(() => menuItems = MenuService.getItemsByCategory(selectedCategory));
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadMenuItems({bool isAutoRefresh = false}) async {
+    try {
+      final items = await MenuService.fetchMenuItems();
+      if (mounted) {
+        setState(() {
+          final previousItemIds = allMenuItems.map((e) => e.id).toSet();
+          final newItemIds = items.map((e) => e.id).toSet();
+          
+          // Solo aggiorna se ci sono cambiamenti
+          if (previousItemIds != newItemIds) {
+            allMenuItems = items;
+            menuItems = MenuService.getItemsByCategory(allMenuItems, selectedCategory);
+          }
+          if (!isAutoRefresh) {
+            isLoading = false;
+          }
+        });
+      }
+    } catch (e) {
+      print('Errore caricamento menu: $e');
+      if (!isAutoRefresh) {
+        setState(() => isLoading = false);
+      }
+    }
+  }
+
+  void _filterByCategory(MenuCategory category) {
+    setState(() {
+      selectedCategory = category;
+      menuItems = MenuService.getItemsByCategory(allMenuItems, selectedCategory);
+    });
   }
 
   @override
@@ -332,23 +366,36 @@ class _MenuScreenState extends State<MenuScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          _buildCategoryTabs(),
-          Expanded(child: _buildProductGrid()),
-          _buildCartFooter(),
-        ],
-      ),
+      body: isLoading
+          ? const Center(child: CircularProgressIndicator(valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFDA291C))))
+          : allMenuItems.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.fastfood, size: 100, color: Colors.grey.shade300),
+                      const SizedBox(height: 20),
+                      const Text('Nessun prodotto disponibile', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                  ],
+                )
+              )
+              : Column(
+                  children: [
+                    _buildCategoryTabs(),
+                    Expanded(child: _buildProductGrid()),
+                    _buildCartFooter(),
+                  ],
+                ),
     );
   }
 
   Widget _buildCategoryTabs() {
     return Container(
-      height: 80,
+      height: 110,
       decoration: BoxDecoration(color: Colors.white, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2))]),
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
         itemCount: MenuCategory.values.length,
         itemBuilder: (context, index) {
           final category = MenuCategory.values[index];
@@ -356,12 +403,11 @@ class _MenuScreenState extends State<MenuScreen> {
           return Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4),
             child: GestureDetector(
-              onTap: () => setState(() {
-                selectedCategory = category;
-                _loadMenuItems();
-              }),
+              onTap: () => _filterByCategory(category),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                width: 90,
+                height: 90,
                 decoration: BoxDecoration(
                   gradient: isSelected ? const LinearGradient(colors: [Color(0xFFFFBC0D), Color(0xFFFFA000)]) : null,
                   color: isSelected ? null : Colors.grey.shade100,
@@ -369,11 +415,13 @@ class _MenuScreenState extends State<MenuScreen> {
                   border: Border.all(color: isSelected ? const Color(0xFFFFBC0D) : Colors.grey.shade300, width: 2),
                 ),
                 child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
-                    Text(category.icon, style: const TextStyle(fontSize: 24)),
-                    const SizedBox(height: 4),
-                    Text(category.displayName, style: TextStyle(color: isSelected ? const Color(0xFFDA291C) : Colors.black87, fontSize: 12, fontWeight: isSelected ? FontWeight.bold : FontWeight.w500)),
+                    Text(category.icon, style: const TextStyle(fontSize: 28)),
+                    SizedBox(
+                      height: 32,
+                      child: Text(category.displayName, textAlign: TextAlign.center, style: TextStyle(color: isSelected ? const Color(0xFFDA291C) : Colors.black87, fontSize: 12, fontWeight: isSelected ? FontWeight.bold : FontWeight.w500), maxLines: 2, overflow: TextOverflow.ellipsis),
+                    ),
                   ],
                 ),
               ),

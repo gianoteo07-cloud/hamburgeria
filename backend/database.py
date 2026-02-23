@@ -13,9 +13,7 @@ class DatabaseWrapper:
             'autocommit': False,
         }
         self.create_tables()
-        # assicuriamoci che la colonna "status" esista, utile se la tabella era già stata creata in precedenza
         self._ensure_status_column()
-        # garantiamo anche le nuove colonne della tabella menu_items
         self._ensure_menu_columns()
 
     def connect(self):
@@ -54,7 +52,6 @@ class DatabaseWrapper:
             '''
         )
 
-        # aggiungiamo anche la colonna status con default per gli ordini
         self.execute_query(
             '''
             CREATE TABLE IF NOT EXISTS orders (
@@ -81,7 +78,7 @@ class DatabaseWrapper:
         )
 
     def get_menu_items(self):
-        return self.fetch_query('SELECT * FROM menu_items ORDER BY created_at DESC')
+        return self.fetch_query('SELECT * FROM menu_items WHERE available=1 ORDER BY created_at DESC')
 
     def _ensure_status_column(self):
         conn = self.connect()
@@ -110,14 +107,12 @@ class DatabaseWrapper:
             conn.close()
 
     def update_menu_item(self, item_id, nome, categoria, prezzo, available=None, description=None):
-        # allow updating optional fields
         if available is None and description is None:
             self.execute_query(
                 'UPDATE menu_items SET nome=%s, categoria=%s, prezzo=%s WHERE id=%s',
                 (nome, categoria, prezzo, item_id)
             )
         else:
-            # build dynamic query
             parts = ['nome=%s', 'categoria=%s', 'prezzo=%s']
             params = [nome, categoria, prezzo]
             if available is not None:
@@ -132,6 +127,9 @@ class DatabaseWrapper:
 
     def delete_menu_item(self, item_id):
         self.execute_query('DELETE FROM menu_items WHERE id=%s', (item_id,))
+
+    def disable_menu_item(self, item_id):
+        self.execute_query('UPDATE menu_items SET available=0 WHERE id=%s', (item_id,))
 
     def add_menu_item(self, nome, categoria, prezzo, available=True, description=None):
         conn = self.connect()
@@ -196,19 +194,9 @@ class DatabaseWrapper:
                 (order['id'],),
             )
         return orders
+
     def update_order_status(self, order_id, status):
         self.execute_query('UPDATE orders SET status=%s WHERE id=%s', (status, order_id))
 
     def delete_order(self, order_id):
         self.execute_query('DELETE FROM orders WHERE id=%s', (order_id,))
-
-    def _ensure_status_column(self):
-        conn = self.connect()
-        try:
-            with conn.cursor() as cursor:
-                cursor.execute("SHOW COLUMNS FROM orders LIKE 'status'")
-                if not cursor.fetchone():
-                    cursor.execute("ALTER TABLE orders ADD COLUMN status VARCHAR(50) NOT NULL DEFAULT 'In Attesa'")
-            conn.commit()
-        finally:
-            conn.close()

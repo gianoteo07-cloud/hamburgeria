@@ -1,11 +1,10 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-# il wrapper del database si trova in database.py
+from functools import wraps
 from database import DatabaseWrapper
 from dotenv import load_dotenv
 import os
 
-# carica le variabili definite in un file .env (se esiste)
 load_dotenv()
 
 app = Flask(__name__)
@@ -20,14 +19,29 @@ try:
         port=int(os.getenv('DB_PORT', '3306')),
     )
 except Exception as e:
-    print(f"Avviso: Impossibile connettere al database - {e}")
+    print(f"Errore connessione database: {e}")
     db = None
 
 
-def check_db():
-    if db is None:
-        return jsonify({'error': 'Database non disponibile'}), 503
-    return None
+def require_db(f):
+    """Decorator per verificare disponibilità database"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if db is None:
+            return jsonify({'error': 'Database non disponibile'}), 503
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+def validate_price(price):
+    """Valida il prezzo"""
+    try:
+        p = float(price)
+        if p <= 0:
+            raise ValueError('Il prezzo deve essere positivo')
+        return p
+    except (ValueError, TypeError):
+        raise ValueError('Il prezzo deve essere un numero valido')
 
 
 @app.route('/')
@@ -41,32 +55,25 @@ def health():
 
 
 @app.route('/menu-items', methods=['GET'])
+@require_db
 def get_menu_items():
-    db_error = check_db()
-    if db_error:
-        return db_error
     items = db.get_menu_items()
     return jsonify(items), 200
 
 
 @app.route('/menu-items', methods=['POST'])
+@require_db
 def add_menu_item():
-    db_error = check_db()
-    if db_error:
-        return db_error
-
     data = request.get_json() or {}
     required_fields = ['nome', 'categoria', 'prezzo']
     for field in required_fields:
         if field not in data or data[field] in (None, ''):
-            return jsonify({'error': f"Campo '{field}' è obbligatorio"}), 400
+            return jsonify({'error': f"Campo '{field}' obbligatorio"}), 400
 
     try:
-        prezzo = float(data['prezzo'])
-        if prezzo <= 0:
-            return jsonify({'error': 'Il prezzo deve essere positivo'}), 400
-    except (ValueError, TypeError):
-        return jsonify({'error': 'Il prezzo deve essere un numero valido'}), 400
+        prezzo = validate_price(data['prezzo'])
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
 
     item_id = db.add_menu_item(
         nome=data['nome'].strip(),
@@ -79,21 +86,18 @@ def add_menu_item():
 
 
 @app.route('/menu-items/<int:item_id>', methods=['PUT'])
+@require_db
 def update_menu_item(item_id):
-    db_error = check_db()
-    if db_error:
-        return db_error
-
     data = request.get_json() or {}
-    try:
-        prezzo = float(data.get('prezzo', 0))
-    except (TypeError, ValueError):
-        return jsonify({'error': 'Prezzo non valido'}), 400
-
     nome = data.get('nome', '').strip()
     categoria = data.get('categoria', '').strip()
-    if not nome or not categoria or prezzo <= 0:
-        return jsonify({'error': 'Nome, categoria e prezzo sono obbligatori e validi'}), 400
+    if not nome or not categoria:
+        return jsonify({'error': 'Nome e categoria obbligatori'}), 400
+
+    try:
+        prezzo = validate_price(data.get('prezzo', 0))
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
 
     available = data.get('available')
     description = data.get('description')
@@ -102,36 +106,26 @@ def update_menu_item(item_id):
 
 
 @app.route('/menu-items/<int:item_id>', methods=['DELETE'])
+@require_db
 def delete_menu_item(item_id):
-    db_error = check_db()
-    if db_error:
-        return db_error
-
-    db.delete_menu_item(item_id)
-    return jsonify({'message': 'Prodotto eliminato'}), 200
+    db.disable_menu_item(item_id)
+    return jsonify({'message': 'Prodotto disabilitato'}), 200
 
 
 @app.route('/orders', methods=['GET'])
+@require_db
 def get_orders():
-    db_error = check_db()
-    if db_error:
-        return db_error
-
-    orders = db.get_orders_with_items()
-    return jsonify(orders), 200
+    return jsonify(db.get_orders_with_items()), 200
 
 
 @app.route('/orders', methods=['POST'])
+@require_db
 def add_order():
-    db_error = check_db()
-    if db_error:
-        return db_error
-
     data = request.get_json() or {}
     items = data.get('items', [])
 
-    if not isinstance(items, list) or len(items) == 0:
-        return jsonify({'error': 'L\'ordine deve contenere almeno un prodotto'}), 400
+    if not items or not isinstance(items, list):
+        return jsonify({'error': 'Ordine vuoto'}), 400
 
     try:
         normalized_items = []
@@ -151,26 +145,18 @@ def add_order():
 
 
 @app.route('/orders/<int:order_id>', methods=['PUT'])
+@require_db
 def update_order(order_id):
-    db_error = check_db()
-    if db_error:
-        return db_error
-
-    data = request.get_json() or {}
-    status = data.get('status')
+    status = request.get_json().get('status') if request.is_json else None
     if not status:
-        return jsonify({'error': "Campo 'status' è richiesto"}), 400
-
+        return jsonify({'error': 'Status richiesto'}), 400
     db.update_order_status(order_id, status)
-    return jsonify({'message': 'Status ordine aggiornato'}), 200
+    return jsonify({'message': 'Status aggiornato'}), 200
 
 
 @app.route('/orders/<int:order_id>', methods=['DELETE'])
+@require_db
 def delete_order(order_id):
-    db_error = check_db()
-    if db_error:
-        return db_error
-
     db.delete_order(order_id)
     return jsonify({'message': 'Ordine eliminato'}), 200
 
